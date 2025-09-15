@@ -50,6 +50,13 @@ export default function Mieten() {
     const [newEndTime, setNewEndTime] = useState('');
     const [saving, setSaving] = useState(false);
 
+    // Penalty invoice state
+    const [showPenaltyInvoiceModal, setShowPenaltyInvoiceModal] = useState(false);
+    const [penaltyAmount, setPenaltyAmount] = useState('');
+    const [penaltyFeeRate, setPenaltyFeeRate] = useState(22.9);
+    const [penaltyMessage, setPenaltyMessage] = useState('');
+    const [creatingPenaltyInvoice, setCreatingPenaltyInvoice] = useState(false);
+
     // Toast notification state (like Vermieter.jsx)
     const [showNotificationModal, setShowNotificationModal] = useState(false);
     const [notificationData, setNotificationData] = useState({type: 'success', title: '', message: ''});
@@ -679,6 +686,88 @@ export default function Mieten() {
         setShowNotificationModal(true);
     };
 
+    // Create penalty invoice function
+    const createPenaltyInvoice = async () => {
+        if (!penaltyAmount || penaltyAmount <= 0) {
+            showNotification('error', 'Fehler', 'Bitte geben Sie einen gültigen Strafbetrag ein.');
+            return;
+        }
+
+        setCreatingPenaltyInvoice(true);
+
+        try {
+            const rental = selectedRentalDetails || selectedRental;
+            const originalAmount = parseFloat(penaltyAmount);
+            const penaltyFee = (originalAmount * penaltyFeeRate) / 100;
+            const subtotal = originalAmount + penaltyFee;
+            const taxRate = 19; // Standard German VAT
+            const taxAmount = (subtotal * taxRate) / 100;
+            const totalAmount = subtotal + taxAmount;
+
+            // Get customer info from rental
+            const customerName = rental.user?.name || rental.renter?.company_name || 'Unbekannter Kunde';
+            const customerEmail = rental.user?.email || rental.renter?.email || '';
+            const customerAddress = rental.user?.address || rental.renter?.company_address || '';
+
+            const invoiceData = {
+                customer_name: customerName,
+                customer_email: customerEmail,
+                customer_address: customerAddress,
+                invoice_date: new Date().toISOString().split('T')[0],
+                due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 14 days from now
+                items: [{
+                    position: 1,
+                    quantity: 1,
+                    unit: 'Stück',
+                    description: penaltyMessage || `Mietbetrag für Miete #${rental.id}`,
+                    unit_price: originalAmount,
+                    total_price: originalAmount
+                }, {
+                    position: 2,
+                    quantity: 1,
+                    unit: 'Stück',
+                    description: `Strafgebühr (${penaltyFeeRate}%) für Miete #${rental.id}`,
+                    unit_price: penaltyFee,
+                    total_price: penaltyFee
+                }],
+                subtotal: subtotal,
+                tax_rate: taxRate,
+                tax_amount: taxAmount,
+                total_amount: totalAmount,
+                status: 'sent',
+                notes: `Strafrechnung für Miete #${rental.id} - ${rental.car?.title || 'Fahrzeug'}`
+            };
+
+            const response = await axios.post('/invoices', invoiceData);
+
+            if (response.data.success) {
+                showNotification('success', 'Erfolg', 'Strafrechnung wurde erfolgreich erstellt.');
+                setShowPenaltyInvoiceModal(false);
+                // Reset form
+                setPenaltyAmount('');
+                setPenaltyMessage('');
+                setPenaltyFeeRate(22.9);
+            } else {
+                showNotification('error', 'Fehler', 'Fehler beim Erstellen der Strafrechnung.');
+            }
+        } catch (error) {
+            console.error('Error creating penalty invoice:', error);
+            showNotification('error', 'Fehler', 'Fehler beim Erstellen der Strafrechnung: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setCreatingPenaltyInvoice(false);
+        }
+    };
+
+    // Open penalty invoice modal
+    const openPenaltyInvoiceModal = () => {
+        const rental = selectedRentalDetails || selectedRental;
+        const rentalAmount = rental?.total_amount || rental?.refundable_amount || 0;
+        setPenaltyAmount(rentalAmount.toString());
+        setPenaltyMessage('');
+        setPenaltyFeeRate(22.9);
+        setShowPenaltyInvoiceModal(true);
+    };
+
     // Edit rental functions
     const initializeEditDates = (rental) => {
         if (rental) {
@@ -834,67 +923,67 @@ export default function Mieten() {
         >
             <Head title="Mieten"/>
 
-            <div className="p-6 min-h-screen">
-                <div className="max-w-7xl mx-auto space-y-6">
+            <div className="p-3 sm:p-6 min-h-screen">
+                <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
 
                     {/* Hauptstatistiken (5 Elemente) */}
-                    <div className="grid grid-cols-5 gap-6">
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 min-w-0">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 min-w-0">
                             <div className="text-center">
-                                <p className="text-3xl font-bold text-orange-600 mb-1 break-words">{statistics.total_rentals}</p>
-                                <p className="text-sm font-medium text-gray-500">Gesamtanzahl Mieten</p>
+                                <p className="text-2xl sm:text-3xl font-bold text-orange-600 mb-1 break-words">{statistics.total_rentals}</p>
+                                <p className="text-xs sm:text-sm font-medium text-gray-500">Gesamtanzahl Mieten</p>
                             </div>
                         </div>
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 min-w-0">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 min-w-0">
                             <div className="text-center">
-                                <p className="text-3xl font-bold text-blue-600 mb-1 break-words">{formatMoney(statistics.average_amount)}</p>
-                                <p className="text-sm font-medium text-gray-500">Durchschnittliche Anfrage</p>
+                                <p className="text-2xl sm:text-3xl font-bold text-blue-600 mb-1 break-words">{formatMoney(statistics.average_amount)}</p>
+                                <p className="text-xs sm:text-sm font-medium text-gray-500">Durchschnittliche Anfrage</p>
                             </div>
                         </div>
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 min-w-0">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 min-w-0">
                             <div className="text-center">
-                                <p className="text-3xl font-bold text-green-600 mb-1 break-words">{formatMoney(statistics.total_amount)}</p>
-                                <p className="text-sm font-medium text-gray-500">Gesamtes Anfragevolumen</p>
+                                <p className="text-2xl sm:text-3xl font-bold text-green-600 mb-1 break-words">{formatMoney(statistics.total_amount)}</p>
+                                <p className="text-xs sm:text-sm font-medium text-gray-500">Gesamtes Anfragevolumen</p>
                             </div>
                         </div>
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 min-w-0">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 min-w-0">
                             <div className="text-center">
-                                <p className="text-3xl font-bold text-purple-600 mb-1 break-words">{formatMoney(statistics.total_platform_fee)}</p>
-                                <p className="text-sm font-medium text-gray-500">Platform Fee (Completed)</p>
+                                <p className="text-2xl sm:text-3xl font-bold text-purple-600 mb-1 break-words">{formatMoney(statistics.total_platform_fee)}</p>
+                                <p className="text-xs sm:text-sm font-medium text-gray-500">Platform Fee (Completed)</p>
                             </div>
                         </div>
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 min-w-0">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 min-w-0">
                             <div className="text-center">
-                                <p className="text-3xl font-bold text-emerald-600 mb-1 break-words">{formatMoney(statistics.completed_payments_amount)}</p>
-                                <p className="text-sm font-medium text-gray-500">Gesamtumsatz (Completed)</p>
+                                <p className="text-2xl sm:text-3xl font-bold text-emerald-600 mb-1 break-words">{formatMoney(statistics.completed_payments_amount)}</p>
+                                <p className="text-xs sm:text-sm font-medium text-gray-500">Gesamtumsatz (Completed)</p>
                             </div>
                         </div>
                     </div>
 
                     {/* Conversion Rates (3 Elemente) */}
-                    <div className="grid grid-cols-3 gap-6">
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 min-w-0">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 min-w-0">
                             <div className="text-center">
-                                <p className="text-3xl font-bold text-green-600 mb-1 break-words">{formatPercentage(conversionRates.payment_rate)}</p>
-                                <p className="text-sm font-medium text-gray-500">Bezahl-Conversion Rate</p>
+                                <p className="text-2xl sm:text-3xl font-bold text-green-600 mb-1 break-words">{formatPercentage(conversionRates.payment_rate)}</p>
+                                <p className="text-xs sm:text-sm font-medium text-gray-500">Bezahl-Conversion Rate</p>
                                 <p className="text-xs text-gray-500 mt-1">
                                     {conversionRates.total_paid} von {statistics.total_rentals} bezahlt
                                 </p>
                             </div>
                         </div>
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 min-w-0">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 min-w-0">
                             <div className="text-center">
-                                <p className="text-3xl font-bold text-red-600 mb-1 break-words">{formatPercentage(conversionRates.cancellation_rate)}</p>
-                                <p className="text-sm font-medium text-gray-500">Stornierungsrate</p>
+                                <p className="text-2xl sm:text-3xl font-bold text-red-600 mb-1 break-words">{formatPercentage(conversionRates.cancellation_rate)}</p>
+                                <p className="text-xs sm:text-sm font-medium text-gray-500">Stornierungsrate</p>
                                 <p className="text-xs text-gray-500 mt-1">
                                     {conversionRates.total_cancellations} von {statistics.total_rentals} storniert
                                 </p>
                             </div>
                         </div>
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 min-w-0">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 min-w-0">
                             <div className="text-center">
-                                <p className="text-3xl font-bold text-orange-600 mb-1 break-words">{formatPercentage(conversionRates.rejection_rate)}</p>
-                                <p className="text-sm font-medium text-gray-500">Ablehnungsrate</p>
+                                <p className="text-2xl sm:text-3xl font-bold text-orange-600 mb-1 break-words">{formatPercentage(conversionRates.rejection_rate)}</p>
+                                <p className="text-xs sm:text-sm font-medium text-gray-500">Ablehnungsrate</p>
                                 <p className="text-xs text-gray-500 mt-1">
                                     {statusData.STATUS_DECLINED || 0} von {statistics.total_rentals} abgelehnt
                                 </p>
@@ -903,24 +992,24 @@ export default function Mieten() {
                     </div>
 
                     {/* Status-Übersicht mit klickbaren Boxen */}
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold">Status Übersicht</h2>
+                            <h2 className="text-lg sm:text-xl font-bold">Status Übersicht</h2>
                         </div>
 
-                        <div className="grid grid-cols-6 gap-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
                             {/* Einzelne Status-Boxen */}
                             {Object.entries(statusOptions).map(([status, label]) => (
                                 <div
                                     key={status}
-                                    className={`p-4 rounded-lg bg-gray-50 border hover:scale-95 transition-all cursor-pointer ${
+                                    className={`p-2 sm:p-4 rounded-lg bg-gray-50 border hover:scale-95 transition-all cursor-pointer ${
                                         selectedStatusFilter === parseInt(status) ? 'ring-2 ring-orange-400' : ''
                                     }`}
                                     onClick={() => filterByStatus(parseInt(status))}
                                 >
                                     <div className="flex items-center justify-between">
                                         <div className="text-gray-600 text-xs">{label}</div>
-                                        <div className={`text-xl font-bold ${getStatusColor(parseInt(status))}`}>
+                                        <div className={`text-lg sm:text-xl font-bold ${getStatusColor(parseInt(status))}`}>
                                             {getStatusCount(parseInt(status))}
                                         </div>
                                     </div>
@@ -939,7 +1028,7 @@ export default function Mieten() {
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="font-medium text-gray-800 text-xs">Aktive & abgeschlossen</div>
-                                    <div className="text-xl font-bold text-orange-600">
+                                    <div className="text-lg sm:text-xl font-bold text-orange-600">
                                         {(statusData.STATUS_ACTIVE || 0) + (statusData.STATUS_COMPLETED || 0) + (statusData.STATUS_PAID || 0) + (statusData.STATUS_RATED || 0)}
                                     </div>
                                 </div>
@@ -948,8 +1037,8 @@ export default function Mieten() {
                     </div>
 
                     {/* Suchleiste mit erweiterten Filtern */}
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-                        <div className="flex flex-col lg:flex-row gap-4">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 mb-4 sm:mb-6">
+                        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                             {/* Suchfeld */}
                             <div className="flex-1 relative">
                                 <svg
@@ -964,7 +1053,7 @@ export default function Mieten() {
                                     onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                                     type="text"
                                     placeholder="Suche nach Name, E-Mail, Auto, Buchungs-ID, Status, Betrag..."
-                                    className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                    className="w-full pl-10 pr-10 py-2 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm sm:text-base"
                                 />
                                 {searchQuery && (
                                     <div
@@ -984,11 +1073,11 @@ export default function Mieten() {
                             </div>
 
                             {/* Sortierung */}
-                            <div className="lg:w-64">
+                            <div className="sm:w-48 lg:w-64">
                                 <select
                                     value={sortBy}
                                     onChange={(e) => handleSortChange(e.target.value)}
-                                    className="w-full py-3 px-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                    className="w-full py-2 sm:py-3 px-3 sm:px-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm sm:text-base"
                                 >
                                     <option value="date_desc">Neueste zuerst</option>
                                     <option value="date_asc">Älteste zuerst</option>
@@ -1002,7 +1091,7 @@ export default function Mieten() {
 
                             <button
                                 onClick={handleSearch}
-                                className="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                                className="px-4 sm:px-6 py-2 sm:py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm sm:text-base whitespace-nowrap"
                             >
                                 Suchen
                             </button>
@@ -1018,17 +1107,17 @@ export default function Mieten() {
 
                     {/* Paginierung */}
                     {pagination && pagination.last_page > 1 && (
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-                            <div className="flex items-center justify-between">
-                                <div className="text-sm text-gray-600">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 mb-4 sm:mb-6">
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
+                                <div className="text-xs sm:text-sm text-gray-600 text-center sm:text-left">
                                     Zeige {pagination.from || 0} bis {pagination.to || 0} von {pagination.total} Mieten
                                 </div>
-                                <div className="flex items-center space-x-2">
+                                <div className="flex items-center space-x-1 sm:space-x-2">
                                     {/* Previous Button */}
                                     <button
                                         onClick={() => loadPage(currentPage - 1)}
                                         disabled={currentPage <= 1 || loading}
-                                        className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        className="px-2 sm:px-3 py-1 text-xs sm:text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         Zurück
                                     </button>
@@ -1051,7 +1140,7 @@ export default function Mieten() {
                                                 key={pageNum}
                                                 onClick={() => loadPage(pageNum)}
                                                 disabled={loading}
-                                                className={`px-3 py-1 text-sm border rounded-md ${
+                                                className={`px-2 sm:px-3 py-1 text-xs sm:text-sm border rounded-md ${
                                                     currentPage === pageNum
                                                         ? 'bg-orange-600 text-white border-orange-600'
                                                         : 'border-gray-300 hover:bg-gray-50'
@@ -1066,7 +1155,7 @@ export default function Mieten() {
                                     <button
                                         onClick={() => loadPage(currentPage + 1)}
                                         disabled={currentPage >= pagination.last_page || loading}
-                                        className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        className="px-2 sm:px-3 py-1 text-xs sm:text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         Weiter
                                     </button>
@@ -1113,11 +1202,11 @@ export default function Mieten() {
                                                     <div
                                                         key={rental.id}
                                                         onClick={() => showRentalDetails(rental)}
-                                                        className={`p-4 ${getRentalCardBgColor(rental.status)} hover:bg-gray-50 cursor-pointer`}
+                                                        className={`p-3 sm:p-4 ${getRentalCardBgColor(rental.status)} hover:bg-gray-50 cursor-pointer`}
                                                     >
-                                                        <div className="flex space-x-4">
+                                                        <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
                                                             {/* Auto Bild */}
-                                                            <div className="w-24 h-24 flex-shrink-0">
+                                                            <div className="w-full h-32 sm:w-24 sm:h-24 flex-shrink-0">
                                                                 {rental.car?.images?.[0] ? (
                                                                     <img
                                                                         src={`https://drivable.app/storage/${rental.car.images[0].image_path}`}
@@ -1135,14 +1224,14 @@ export default function Mieten() {
                                                             </div>
 
                                                             {/* Mieten Info */}
-                                                            <div className="flex-1 relative">
+                                                            <div className="flex-1 relative min-h-0">
 
                                                                 {/* Hauptinfo Box */}
                                                                 <div
-                                                                    className={`flex justify-between items-start ${getRentalCardBgColor(rental.status)} rounded-lg p-4 shadow-sm -mt-4`}>
-                                                                    <div className="space-y-1">
+                                                                    className={`flex flex-col sm:flex-row sm:justify-between sm:items-start space-y-3 sm:space-y-0 ${getRentalCardBgColor(rental.status)} rounded-lg p-3 sm:p-4 shadow-sm sm:-mt-4`}>
+                                                                    <div className="space-y-1 flex-1">
                                                                         <div className="flex items-center space-x-2">
-                                                                            <svg className="w-5 h-5 text-gray-500"
+                                                                            <svg className="w-4 sm:w-5 h-4 sm:h-5 text-gray-500"
                                                                                  fill="none" stroke="currentColor"
                                                                                  viewBox="0 0 24 24">
                                                                                 <path strokeLinecap="round"
@@ -1150,7 +1239,7 @@ export default function Mieten() {
                                                                                       strokeWidth="2"
                                                                                       d="M19 4h-4l-2-2H9L7 4H3a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2z"/>
                                                                             </svg>
-                                                                            <h3 className="font-medium text-lg">{rental.car?.title || 'Unbekanntes Auto'}</h3>
+                                                                            <h3 className="font-medium text-base sm:text-lg">{rental.car?.title || 'Unbekanntes Auto'}</h3>
                                                                         </div>
 
                                                                         <div
@@ -1167,18 +1256,18 @@ export default function Mieten() {
                                                                         </div>
                                                                     </div>
 
-                                                                    <div className="text-right">
+                                                                    <div className="text-left sm:text-right flex-shrink-0">
                                                                         <div
-                                                                            className="text-xl font-bold text-gray-900">
+                                                                            className="text-lg sm:text-xl font-bold text-gray-900">
                                                                             {formatMoney(rental.total_amount || rental.refundable_amount || 0)}
                                                                         </div>
-                                                                        <div className="text-sm text-gray-500 mt-1">
+                                                                        <div className="text-xs sm:text-sm text-gray-500 mt-1">
                                                                             Platform
                                                                             Fee: {formatMoney(rental.platform_fee || 0)}
                                                                         </div>
                                                                         <div className="mt-1">
                                                                             <span
-                                                                                className={`text-sm font-medium rounded-full px-2 py-1 ${getStatusBgColor(rental.status)} ${getStatusColor(rental.status)}`}>
+                                                                                className={`text-xs sm:text-sm font-medium rounded-full px-2 py-1 ${getStatusBgColor(rental.status)} ${getStatusColor(rental.status)}`}>
                                                                                 {statusOptions[rental.status]}
                                                                             </span>
                                                                         </div>
@@ -1186,7 +1275,7 @@ export default function Mieten() {
                                                                 </div>
 
                                                                 {/* Zusätzliche Infos */}
-                                                                <div className="grid grid-cols-4 gap-6 text-sm mt-4">
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 text-xs sm:text-sm mt-4">
                                                                     <div className="space-y-1">
                                                                         <div
                                                                             className="flex items-center text-gray-500">
@@ -1340,6 +1429,13 @@ export default function Mieten() {
                                             <option key={status} value={status}>{label}</option>
                                         ))}
                                     </select>
+
+                                    <button
+                                        onClick={openPenaltyInvoiceModal}
+                                        className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-medium transition-colors duration-200"
+                                    >
+                                        Strafrechnung
+                                    </button>
 
                                     <button
                                         onClick={() => deleteRental(selectedRental.id)}
@@ -3010,6 +3106,130 @@ export default function Mieten() {
                                     OK
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Penalty Invoice Modal */}
+            {showPenaltyInvoiceModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-lg max-w-md w-full p-6">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-semibold text-gray-900">Strafrechnung erstellen</h3>
+                            <button
+                                onClick={() => setShowPenaltyInvoiceModal(false)}
+                                className="text-gray-400 hover:text-gray-600"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Mietbetrag (netto) *
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={penaltyAmount}
+                                        onChange={(e) => setPenaltyAmount(e.target.value)}
+                                        placeholder="0.00"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                        required
+                                    />
+                                    <span className="absolute right-3 top-2 text-gray-500">€</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Strafgebühr (%)
+                                </label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max="100"
+                                    value={penaltyFeeRate}
+                                    onChange={(e) => setPenaltyFeeRate(parseFloat(e.target.value) || 0)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Beschreibung
+                                </label>
+                                <textarea
+                                    value={penaltyMessage}
+                                    onChange={(e) => setPenaltyMessage(e.target.value)}
+                                    placeholder={`Strafgebühr für Miete #${selectedRental?.id || ''}`}
+                                    rows="3"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none"
+                                />
+                            </div>
+
+                            {penaltyAmount && (
+                                <div className="bg-gray-50 p-4 rounded-md">
+                                    <div className="text-sm space-y-1">
+                                        <div className="flex justify-between">
+                                            <span>Mietbetrag:</span>
+                                            <span>{parseFloat(penaltyAmount || 0).toFixed(2)} €</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Strafgebühr ({penaltyFeeRate}%):</span>
+                                            <span>{((parseFloat(penaltyAmount || 0) * penaltyFeeRate) / 100).toFixed(2)} €</span>
+                                        </div>
+                                        <div className="flex justify-between border-t pt-1">
+                                            <span>Nettobetrag:</span>
+                                            <span>{(parseFloat(penaltyAmount || 0) + ((parseFloat(penaltyAmount || 0) * penaltyFeeRate) / 100)).toFixed(2)} €</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>MwSt (19%):</span>
+                                            <span>{(((parseFloat(penaltyAmount || 0) + ((parseFloat(penaltyAmount || 0) * penaltyFeeRate) / 100)) * 19) / 100).toFixed(2)} €</span>
+                                        </div>
+                                        <div className="flex justify-between font-semibold border-t pt-1">
+                                            <span>Gesamtbetrag:</span>
+                                            <span>{(() => {
+                                                const originalAmount = parseFloat(penaltyAmount || 0);
+                                                const penaltyFee = (originalAmount * penaltyFeeRate) / 100;
+                                                const subtotal = originalAmount + penaltyFee;
+                                                const tax = (subtotal * 19) / 100;
+                                                return (subtotal + tax).toFixed(2);
+                                            })()} €</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end space-x-3 mt-6">
+                            <button
+                                onClick={() => setShowPenaltyInvoiceModal(false)}
+                                className="px-4 py-2 text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-md transition-colors"
+                                disabled={creatingPenaltyInvoice}
+                            >
+                                Abbrechen
+                            </button>
+                            <button
+                                onClick={createPenaltyInvoice}
+                                disabled={creatingPenaltyInvoice || !penaltyAmount || penaltyAmount <= 0}
+                                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                            >
+                                {creatingPenaltyInvoice && (
+                                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                                    </svg>
+                                )}
+                                <span>{creatingPenaltyInvoice ? 'Erstelle...' : 'Strafrechnung erstellen'}</span>
+                            </button>
                         </div>
                     </div>
                 </div>
